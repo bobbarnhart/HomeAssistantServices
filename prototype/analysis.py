@@ -28,7 +28,11 @@ def _eval_on_sunset(params: dict, entity: knowledge.Entity) -> bool:
 
 def _eval_entity_state(params: dict, entity: knowledge.Entity) -> bool:
     target = knowledge.get_entity(params["entity_id"])
-    return target is not None and target["state"] == params["state"]
+    if target is None:
+        return False
+    if "state" not in params:
+        return True  # stateless entity (e.g. button) — presence is sufficient
+    return target["state"] == params["state"]
 
 
 # Dispatch table: trigger_type → (handler, cooldown_seconds)

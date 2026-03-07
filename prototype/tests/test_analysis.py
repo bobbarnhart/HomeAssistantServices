@@ -84,6 +84,21 @@ def test_entity_state_no_fire_wrong_state():
     assert result == []
 
 
+def test_entity_state_button_no_state_fires():
+    knowledge.apply_state_change(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
+    knowledge.load_configuration([_automation("Test", analysis.TRIGGER_ENTITY_STATE,
+                                              {"entity_id": "button.doorbell"})])
+    result = analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
+    assert len(result) == 1
+
+
+def test_entity_state_button_no_state_missing_entity_no_fire():
+    knowledge.load_configuration([_automation("Test", analysis.TRIGGER_ENTITY_STATE,
+                                              {"entity_id": "button.doorbell"})])
+    result = analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
+    assert result == []
+
+
 # ---------------------------------------------------------------------------
 # Cooldown
 # ---------------------------------------------------------------------------

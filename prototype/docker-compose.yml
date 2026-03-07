@@ -8,6 +8,8 @@ services:
       - ./config.py:/app/config.py:ro
     restart: unless-stopped
     network_mode: host
+    environment:
+      TZ: America/Denver
 
   test:
     build:

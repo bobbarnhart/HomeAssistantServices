@@ -1,0 +1,16 @@
+services:
+  ha-automation:
+    build:
+      context: .
+      target: prod
+    env_file: ../.env
+    volumes:
+      - ./config.py:/app/config.py:ro
+    restart: unless-stopped
+    network_mode: host
+
+  test:
+    build:
+      context: .
+      target: test
+    profiles: [test]

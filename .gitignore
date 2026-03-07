@@ -1,0 +1,11 @@
+# Secrets
+.env
+
+# User config — copy prototype/config_example.py to prototype/config.py and fill in your values
+prototype/config.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/

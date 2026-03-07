@@ -40,7 +40,7 @@ def _eval_entity_state(params: dict, entity: knowledge.Entity) -> bool:
 _DISPATCH: dict = {
     TRIGGER_AT_TIME:      (_eval_at_time,      3600),
     TRIGGER_ON_SUNSET:    (_eval_on_sunset,    3600),
-    TRIGGER_ENTITY_STATE: (_eval_entity_state,   60),
+    TRIGGER_ENTITY_STATE: (_eval_entity_state,   0),
 }
 
 # ---------------------------------------------------------------------------

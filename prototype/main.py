@@ -31,9 +31,9 @@ async def _main() -> None:
 
     async def on_state_change(ws, entity: knowledge.Entity) -> None:
         fired = analysis.evaluate_automations(entity)
-        for automation in fired:
-            plan = planning.build_plan(automation)
-            await execution.execute_plan(ws, plan, automation["name"])
+        for item in fired:
+            plan = planning.build_plan(item["automation"])
+            await execution.execute_plan(ws, plan, item["automation"]["name"], item["request_id"])
 
     await monitor.run(on_state_change)
 

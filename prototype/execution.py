@@ -45,8 +45,10 @@ async def send_action(ws, step: knowledge.ActionStep) -> None:
         raise
 
 
-async def execute_plan(ws, plan: knowledge.Plan, automation_name: str) -> None:
+async def execute_plan(ws, plan: knowledge.Plan, automation_name: str, request_id: str | None = None) -> None:
     """Send every action step in the plan sequentially, then record the execution."""
     for step in plan:
         await send_action(ws, step)
     knowledge.record_execution(automation_name, plan, datetime.now())
+    if request_id is not None:
+        knowledge.update_request_status(request_id, knowledge.REQUEST_COMPLETED)

@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -115,8 +117,8 @@ async def test_fetch_initial_states_skips_mismatched_id():
 async def test_event_loop_updates_knowledge_on_state_change():
     received = []
 
-    async def on_change(ws, entity):
-        received.append(entity)
+    async def on_change(ws, entity, request_id=None):
+        received.append((entity, request_id))
 
     sub_id = 2
     ws = MockWebSocket([
@@ -133,14 +135,15 @@ async def test_event_loop_updates_knowledge_on_state_change():
     ])
     await monitor._event_loop(ws, sub_id, on_change)
     assert len(received) == 1
-    assert received[0]["entity_id"] == "light.bedroom"
+    assert received[0][0]["entity_id"] == "light.bedroom"
+    assert received[0][1] is None  # regular entity: no request_id
     assert knowledge.get_entity("light.bedroom")["state"] == "on"
 
 
 async def test_event_loop_ignores_wrong_sub_id():
     received = []
 
-    async def on_change(ws, entity):
+    async def on_change(ws, entity, request_id=None):
         received.append(entity)
 
     ws = MockWebSocket([
@@ -155,7 +158,7 @@ async def test_event_loop_ignores_wrong_sub_id():
 async def test_event_loop_ignores_missing_new_state():
     received = []
 
-    async def on_change(ws, entity):
+    async def on_change(ws, entity, request_id=None):
         received.append(entity)
 
     sub_id = 2
@@ -164,3 +167,82 @@ async def test_event_loop_ignores_missing_new_state():
     ])
     await monitor._event_loop(ws, sub_id, on_change)
     assert received == []
+
+
+async def test_event_loop_button_creates_request_and_skips_state():
+    # Button entity should create a NEW request and NOT be stored in _state
+    knowledge.load_configuration([{
+        "name": "Doorbell",
+        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
+        "steps": [],
+    }])
+    received = []
+
+    async def on_change(ws, entity, request_id=None):
+        received.append(request_id)
+
+    sub_id = 2
+    ws = MockWebSocket([{
+        "type": "event", "id": sub_id,
+        "event": {"data": {"new_state": {
+            "entity_id": "button.doorbell", "state": "2026-03-11T10:00:00+00:00",
+            "attributes": {}, "area_id": None,
+        }}},
+    }])
+    await monitor._event_loop(ws, sub_id, on_change)
+    assert len(received) == 1
+    assert received[0] is not None  # request_id was passed
+    assert knowledge.get_entity("button.doorbell") is None  # NOT stored in _state
+    req = knowledge.get_last_request("button.doorbell")
+    assert req is not None
+    assert req["status"] == knowledge.REQUEST_NEW
+
+
+async def test_event_loop_button_rejected_during_cooldown():
+    knowledge.load_configuration([{
+        "name": "Doorbell",
+        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
+        "steps": [],
+    }])
+    # Seed a recent request 2 seconds ago — within the 5s cooldown
+    with patch("monitor.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 1, 1, 20, 29, 58)
+        knowledge.create_request("button.doorbell", knowledge.REQUEST_NEW, datetime(2026, 1, 1, 20, 29, 58))
+
+    received = []
+
+    async def on_change(ws, entity, request_id=None):
+        received.append(request_id)
+
+    sub_id = 2
+    ws = MockWebSocket([{
+        "type": "event", "id": sub_id,
+        "event": {"data": {"new_state": {
+            "entity_id": "button.doorbell", "state": "2026-03-11T10:00:01+00:00",
+            "attributes": {}, "area_id": None,
+        }}},
+    }])
+    with patch("monitor.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 1, 1, 20, 30, 0)
+        await monitor._event_loop(ws, sub_id, on_change)
+
+    assert received == []  # callback NOT called
+    req = knowledge.get_last_request("button.doorbell")
+    assert req["status"] == knowledge.REQUEST_REJECTED
+
+
+async def test_fetch_initial_states_skips_button_entities():
+    knowledge.load_configuration([{
+        "name": "Doorbell",
+        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
+        "steps": [],
+    }])
+    ws = MockWebSocket([{
+        "id": 1, "type": "result", "result": [
+            {"entity_id": "light.test",      "state": "on",  "attributes": {}, "area_id": None},
+            {"entity_id": "button.doorbell", "state": "2026-03-11T10:00:00+00:00", "attributes": {}, "area_id": None},
+        ],
+    }])
+    await monitor._fetch_initial_states(ws)
+    assert knowledge.get_entity("light.test") is not None
+    assert knowledge.get_entity("button.doorbell") is None

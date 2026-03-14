@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Awaitable, Callable
 
 import websockets
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _RECONNECT_DELAY = 5  # seconds between reconnect attempts
 
-OnStateChange = Callable[[object, knowledge.Entity], Awaitable[None]]
+OnStateChange = Callable[[object, knowledge.Entity, "str | None"], Awaitable[None]]
 
 
 async def _authenticate(ws) -> bool:
@@ -51,6 +52,9 @@ async def _fetch_initial_states(ws) -> None:
                     or raw_entity.get("attributes", {}).get("area_id")
                 ),
             }
+            if knowledge.is_stateless_trigger_entity(entity["entity_id"]):
+                logger.debug("  skipped (button): %s", entity["entity_id"])
+                continue
             knowledge.apply_state_change(entity)
             logger.debug("  loaded: %s = %s (area=%s)", entity["entity_id"], entity["state"], entity["area_id"])
         logger.info("Initial entity fetch complete: %d entities loaded", len(entities))
@@ -90,8 +94,24 @@ async def _event_loop(ws, sub_id: int, on_state_change: OnStateChange) -> None:
             ),
         }
         logger.debug("state_changed: %s → %s", entity["entity_id"], entity["state"])
-        knowledge.apply_state_change(entity)
-        await on_state_change(ws, entity)
+        if knowledge.is_stateless_trigger_entity(entity["entity_id"]):
+            now = datetime.now()
+            last_req = knowledge.get_last_request(entity["entity_id"])
+            if last_req is not None:
+                elapsed = (now - last_req["created_at"]).total_seconds()
+                if elapsed < knowledge.BUTTON_COOLDOWN_SECS:
+                    knowledge.create_request(entity["entity_id"], knowledge.REQUEST_REJECTED, now)
+                    logger.info(
+                        "Request rejected — cooldown active: entity=%s remaining=%.0fs",
+                        entity["entity_id"], knowledge.BUTTON_COOLDOWN_SECS - elapsed,
+                    )
+                    continue
+            req = knowledge.create_request(entity["entity_id"], knowledge.REQUEST_NEW, now)
+            logger.info("Request created: entity=%s id=%s", entity["entity_id"], req["id"])
+            await on_state_change(ws, entity, req["id"])
+        else:
+            knowledge.apply_state_change(entity)
+            await on_state_change(ws, entity, None)
 
 
 async def run(on_state_change: OnStateChange) -> None:

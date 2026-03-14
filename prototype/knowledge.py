@@ -49,18 +49,18 @@ Plan = list  # list[ActionStep]
 # Request model (button / stateless trigger lifecycle)
 # ---------------------------------------------------------------------------
 
+BUTTON_COOLDOWN_SECS = 5
+
 REQUEST_NEW       = "NEW"
 REQUEST_PENDING   = "PENDING"
 REQUEST_COMPLETED = "COMPLETED"
 REQUEST_REJECTED  = "REJECTED"
 
 Request = TypedDict("Request", {
-    "id":              str,
-    "automation_name": str,
-    "trigger_type":    str,
-    "entity_id":       str,
-    "status":          str,
-    "created_at":      datetime,
+    "id":         str,
+    "entity_id":  str,
+    "status":     str,
+    "created_at": datetime,
 })
 
 TriggerRecord = TypedDict("TriggerRecord", {
@@ -122,35 +122,41 @@ def record_execution(automation_name: str, plan: Plan, executed_at: datetime) ->
     })
 
 
-def create_request(automation_name: str, trigger_type: str, entity_id: str, status: str, created_at: datetime) -> Request:
-    """Create and store a new request. Called only by analysis."""
+def create_request(entity_id: str, status: str, created_at: datetime) -> Request:
+    """Create and store a new request. Called only by monitor."""
     req: Request = {
-        "id":              str(uuid.uuid4()),
-        "automation_name": automation_name,
-        "trigger_type":    trigger_type,
-        "entity_id":       entity_id,
-        "status":          status,
-        "created_at":      created_at,
+        "id":         str(uuid.uuid4()),
+        "entity_id":  entity_id,
+        "status":     status,
+        "created_at": created_at,
     }
     _requests.append(req)
     return req
 
 
 def update_request_status(request_id: str, status: str) -> None:
-    """Update the status of an existing request. Called only by execution."""
+    """Update the status of an existing request. Called only by main."""
     for req in _requests:
         if req["id"] == request_id:
             req["status"] = status
             return
 
 
-def get_last_request(automation_name: str, trigger_type: str) -> Request | None:
-    """Return the most recent Request for the given automation+type, or None."""
-    matches = [
-        r for r in _requests
-        if r["automation_name"] == automation_name and r["trigger_type"] == trigger_type
-    ]
+def get_last_request(entity_id: str) -> Request | None:
+    """Return the most recent Request for the given entity_id, or None."""
+    matches = [r for r in _requests if r["entity_id"] == entity_id]
     return matches[-1] if matches else None
+
+
+def is_stateless_trigger_entity(entity_id: str) -> bool:
+    """Return True if entity_id is used as a stateless (button) trigger in any automation."""
+    for automation in _config["automations"]:
+        for trigger in automation["triggers"]:
+            if (trigger.get("type") == "entity_state"
+                    and trigger["params"].get("entity_id") == entity_id
+                    and "state" not in trigger["params"]):
+                return True
+    return False
 
 
 def next_msg_id() -> int:

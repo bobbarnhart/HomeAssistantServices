@@ -90,15 +90,3 @@ async def test_execute_plan_empty_plan_still_records():
     assert history[0]["automation_name"] == "Empty Auto"
 
 
-async def test_execute_plan_marks_request_completed():
-    from datetime import datetime
-    ws = MockWebSocket()
-    req = knowledge.create_request("Test", "entity_state", "button.x",
-                                   knowledge.REQUEST_NEW, datetime.now())
-    await execution.execute_plan(ws, [], "Test", request_id=req["id"])
-    assert knowledge._requests[0]["status"] == knowledge.REQUEST_COMPLETED
-
-
-async def test_execute_plan_no_request_id_no_error():
-    ws = MockWebSocket()
-    await execution.execute_plan(ws, [], "Test", request_id=None)

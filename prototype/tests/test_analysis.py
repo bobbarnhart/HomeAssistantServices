@@ -90,7 +90,6 @@ def test_entity_state_button_no_state_fires():
                                               {"entity_id": "button.doorbell"})])
     result = analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
     assert len(result) == 1
-    assert result[0]["request_id"] is not None
 
 
 def test_entity_state_button_no_fire_wrong_entity():
@@ -99,46 +98,6 @@ def test_entity_state_button_no_fire_wrong_entity():
                                               {"entity_id": "button.doorbell"})])
     result = analysis.evaluate_automations(_entity("switch.something_else", "on"))
     assert result == []
-
-
-def test_button_request_created_on_fire():
-    knowledge.load_configuration([_automation("Test", analysis.TRIGGER_ENTITY_STATE,
-                                              {"entity_id": "button.doorbell"})])
-    with patch("analysis.datetime") as mock_dt:
-        now = datetime(2026, 1, 1, 20, 30)
-        mock_dt.now.return_value = now
-        analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
-    req = knowledge.get_last_request("Test", analysis.TRIGGER_ENTITY_STATE)
-    assert req is not None
-    assert req["status"] == knowledge.REQUEST_NEW
-    assert req["created_at"] == now
-
-
-def test_button_request_rejected_during_cooldown():
-    knowledge.load_configuration([_automation("Test", analysis.TRIGGER_ENTITY_STATE,
-                                              {"entity_id": "button.doorbell"})])
-    # Create a request 2 seconds ago — within the 5s cooldown
-    knowledge.create_request("Test", analysis.TRIGGER_ENTITY_STATE, "button.doorbell",
-                              knowledge.REQUEST_NEW, datetime(2026, 1, 1, 20, 29, 58))
-    with patch("analysis.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2026, 1, 1, 20, 30, 0)
-        result = analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
-    assert result == []
-    # A REJECTED request should have been created
-    req = knowledge.get_last_request("Test", analysis.TRIGGER_ENTITY_STATE)
-    assert req["status"] == knowledge.REQUEST_REJECTED
-
-
-def test_button_request_allowed_after_cooldown():
-    knowledge.load_configuration([_automation("Test", analysis.TRIGGER_ENTITY_STATE,
-                                              {"entity_id": "button.doorbell"})])
-    # Create a request 10 seconds ago — past the 5s cooldown
-    knowledge.create_request("Test", analysis.TRIGGER_ENTITY_STATE, "button.doorbell",
-                              knowledge.REQUEST_COMPLETED, datetime(2026, 1, 1, 20, 29, 50))
-    with patch("analysis.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2026, 1, 1, 20, 30, 0)
-        result = analysis.evaluate_automations(_entity("button.doorbell", "2026-03-07T12:00:00+00:00"))
-    assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +165,7 @@ def test_multiple_automations_both_fire():
         _automation("Door Open", analysis.TRIGGER_ENTITY_STATE, {"entity_id": "binary_sensor.door", "state": "on"}),
     ])
     result = analysis.evaluate_automations(_entity("binary_sensor.door", "on"))
-    names = [item["automation"]["name"] for item in result]
+    names = [a["name"] for a in result]
     assert "Sunset" in names
     assert "Door Open" in names
 

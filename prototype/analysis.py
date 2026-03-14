@@ -49,10 +49,8 @@ _DISPATCH: dict = {
 # ---------------------------------------------------------------------------
 
 def evaluate_automations(changed_entity: knowledge.Entity) -> list:
-    """Return list of {"automation": Automation, "request_id": str | None} for fired automations.
+    """Return automations whose triggers have fired, respecting per-type cooldowns.
 
-    Button (stateless entity_state) triggers use request-based cooldown and create a
-    Request record. All other trigger types use the existing record_trigger cooldown.
     Each automation is returned at most once even if multiple triggers match.
     """
     fired = []
@@ -69,57 +67,23 @@ def evaluate_automations(changed_entity: knowledge.Entity) -> list:
             if not handler(trigger["params"], changed_entity):
                 continue
 
-            is_button = (
-                trigger["type"] == TRIGGER_ENTITY_STATE
-                and "state" not in trigger["params"]
+            # Condition met — check cooldown before firing
+            last = knowledge.get_last_trigger(automation["name"], trigger["type"])
+            if last is not None:
+                elapsed = (now - last["fired_at"]).total_seconds()
+                if elapsed < cooldown_secs:
+                    logger.info(
+                        "Trigger skipped — cooldown active: automation=%r type=%s remaining=%.0fs",
+                        automation["name"], trigger["type"], cooldown_secs - elapsed,
+                    )
+                    break
+
+            logger.info(
+                "Trigger fired: automation=%r type=%s",
+                automation["name"], trigger["type"],
             )
-
-            if is_button:
-                # Cooldown gates ingestion: reject if a recent request exists
-                last_req = knowledge.get_last_request(automation["name"], trigger["type"])
-                if last_req is not None:
-                    elapsed = (now - last_req["created_at"]).total_seconds()
-                    if elapsed < cooldown_secs:
-                        knowledge.create_request(
-                            automation["name"], trigger["type"],
-                            changed_entity["entity_id"],
-                            knowledge.REQUEST_REJECTED, now,
-                        )
-                        logger.info(
-                            "Request rejected — cooldown active: automation=%r remaining=%.0fs",
-                            automation["name"], cooldown_secs - elapsed,
-                        )
-                        break
-
-                req = knowledge.create_request(
-                    automation["name"], trigger["type"],
-                    changed_entity["entity_id"],
-                    knowledge.REQUEST_NEW, now,
-                )
-                logger.info(
-                    "Request created: automation=%r id=%s",
-                    automation["name"], req["id"],
-                )
-                fired.append({"automation": automation, "request_id": req["id"]})
-            else:
-                # Standard cooldown via trigger history
-                last = knowledge.get_last_trigger(automation["name"], trigger["type"])
-                if last is not None:
-                    elapsed = (now - last["fired_at"]).total_seconds()
-                    if elapsed < cooldown_secs:
-                        logger.info(
-                            "Trigger skipped — cooldown active: automation=%r type=%s remaining=%.0fs",
-                            automation["name"], trigger["type"], cooldown_secs - elapsed,
-                        )
-                        break
-
-                logger.info(
-                    "Trigger fired: automation=%r type=%s",
-                    automation["name"], trigger["type"],
-                )
-                knowledge.record_trigger(automation["name"], trigger["type"], now)
-                fired.append({"automation": automation, "request_id": None})
-
+            knowledge.record_trigger(automation["name"], trigger["type"], now)
+            fired.append(automation)
             break  # first matching trigger per automation is sufficient
 
     if not fired:

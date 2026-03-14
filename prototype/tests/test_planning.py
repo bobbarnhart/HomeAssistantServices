@@ -10,12 +10,12 @@ def reset():
     knowledge._reset()
 
 
-def _automation(steps):
-    return {"name": "Test", "triggers": [], "steps": steps}
+def _plan(steps):
+    return {"name": "Test", "steps": steps}
 
 
 def test_build_plan_single_entity():
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "light.lamp", "target_type": TARGET_ENTITY,
          "service": SERVICE_LIGHT_TURN_ON, "params": {"brightness_pct": 50}},
     ]))
@@ -28,7 +28,7 @@ def test_build_plan_single_entity():
 def test_build_plan_area_expands_to_entities():
     knowledge.apply_state_change({"entity_id": "light.a", "state": "on", "attributes": {}, "area_id": "nursery"})
     knowledge.apply_state_change({"entity_id": "light.b", "state": "on", "attributes": {}, "area_id": "nursery"})
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "nursery", "target_type": TARGET_AREA,
          "service": SERVICE_LIGHT_TURN_ON, "params": {}},
     ]))
@@ -38,7 +38,7 @@ def test_build_plan_area_expands_to_entities():
 
 
 def test_build_plan_area_with_no_entities_produces_empty():
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "empty_room", "target_type": TARGET_AREA,
          "service": SERVICE_LIGHT_TURN_ON, "params": {}},
     ]))
@@ -47,7 +47,7 @@ def test_build_plan_area_with_no_entities_produces_empty():
 
 def test_build_plan_mixed_entity_and_area():
     knowledge.apply_state_change({"entity_id": "light.area_light", "state": "on", "attributes": {}, "area_id": "office"})
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "switch.fan",    "target_type": TARGET_ENTITY, "service": SERVICE_SWITCH_TURN_ON, "params": {}},
         {"target": "office",        "target_type": TARGET_AREA,   "service": SERVICE_LIGHT_TURN_ON,  "params": {}},
     ]))
@@ -57,7 +57,7 @@ def test_build_plan_mixed_entity_and_area():
 
 
 def test_build_plan_preserves_params_per_step():
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "light.a", "target_type": TARGET_ENTITY,
          "service": SERVICE_LIGHT_TURN_ON, "params": {"brightness_pct": 10}},
         {"target": "light.b", "target_type": TARGET_ENTITY,
@@ -70,7 +70,7 @@ def test_build_plan_preserves_params_per_step():
 def test_build_plan_area_params_applied_to_all_entities():
     knowledge.apply_state_change({"entity_id": "light.a", "state": "on", "attributes": {}, "area_id": "living"})
     knowledge.apply_state_change({"entity_id": "light.b", "state": "on", "attributes": {}, "area_id": "living"})
-    plan = planning.build_plan(_automation([
+    plan = planning.build_plan(_plan([
         {"target": "living", "target_type": TARGET_AREA,
          "service": SERVICE_LIGHT_TURN_ON, "params": {"brightness_pct": 5}},
     ]))

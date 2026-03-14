@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 TRIGGER_AT_TIME      = "at_time"       # params: {"time": "HH:MM"}
 TRIGGER_ON_SUNSET    = "on_sunset"     # params: {}
-TRIGGER_ENTITY_STATE = "entity_state"  # params: {"entity_id": str, "state": str}
+TRIGGER_ENTITY_STATE = "entity_state"  # params: {"entity_id": str} or {"entity_id": str, "state": str}
 
 # ---------------------------------------------------------------------------
 # Trigger evaluation handlers
@@ -28,7 +28,7 @@ def _eval_on_sunset(params: dict, entity: knowledge.Entity) -> bool:
 
 def _eval_entity_state(params: dict, entity: knowledge.Entity) -> bool:
     if "state" not in params:
-        # Stateless entity (e.g. button): fire only on the exact incoming event
+        # Stateless entity (button): fire only on the exact incoming event
         return entity["entity_id"] == params["entity_id"]
     target = knowledge.get_entity(params["entity_id"])
     if target is None:
@@ -36,55 +36,71 @@ def _eval_entity_state(params: dict, entity: knowledge.Entity) -> bool:
     return target["state"] == params["state"]
 
 
-# Dispatch table: trigger_type → (handler, cooldown_seconds)
-# Add new trigger types here only — config.py is never modified for this.
+# Dispatch table: trigger_type → handler
 _DISPATCH: dict = {
-    TRIGGER_AT_TIME:      (_eval_at_time,      3600),
-    TRIGGER_ON_SUNSET:    (_eval_on_sunset,    3600),
-    TRIGGER_ENTITY_STATE: (_eval_entity_state,   5),
+    TRIGGER_AT_TIME:      _eval_at_time,
+    TRIGGER_ON_SUNSET:    _eval_on_sunset,
+    TRIGGER_ENTITY_STATE: _eval_entity_state,
 }
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def evaluate_automations(changed_entity: knowledge.Entity) -> list:
-    """Return automations whose triggers have fired, respecting per-type cooldowns.
+def evaluate_triggers(changed_entity: knowledge.Entity, request_id: str | None = None) -> list:
+    """Return list of {"plan": PlanDescriptor, "request_id": str} for triggers that fired.
 
-    Each automation is returned at most once even if multiple triggers match.
+    Button triggers set the monitor-created request to PENDING.
+    Time/condition triggers deduplicate per calendar day and create a PENDING request.
+    Stateful entity triggers always fire and create a PENDING request.
     """
     fired = []
     now = datetime.now()
+    today = now.date()
 
-    for automation in knowledge.get_automations():
-        for trigger in automation["triggers"]:
-            entry = _DISPATCH.get(trigger["type"])
-            if entry is None:
-                logger.warning("Unknown trigger type: %s", trigger["type"])
+    for trigger in knowledge.get_triggers():
+        handler = _DISPATCH.get(trigger["type"])
+        if handler is None:
+            logger.warning("Unknown trigger type: %s", trigger["type"])
+            continue
+
+        if not handler(trigger["params"], changed_entity):
+            continue
+
+        plan = knowledge.get_plan(trigger["plan"])
+        if plan is None:
+            logger.warning("Unknown plan: %r", trigger["plan"])
+            continue
+
+        is_button = trigger["type"] == TRIGGER_ENTITY_STATE and "state" not in trigger["params"]
+
+        if is_button:
+            # Request was created by monitor; set it to PENDING
+            if request_id is None:
+                logger.warning("Button trigger fired without request_id: plan=%r", trigger["plan"])
                 continue
-
-            handler, cooldown_secs = entry
-            if not handler(trigger["params"], changed_entity):
-                continue
-
-            # Condition met — check cooldown before firing
-            last = knowledge.get_last_trigger(automation["name"], trigger["type"])
-            if last is not None:
-                elapsed = (now - last["fired_at"]).total_seconds()
-                if elapsed < cooldown_secs:
+            knowledge.update_request_status(request_id, knowledge.REQUEST_PENDING)
+            logger.info("Request PENDING: plan=%r id=%s", trigger["plan"], request_id)
+            fired.append({"plan": plan, "request_id": request_id})
+        else:
+            # Time/condition triggers: deduplicate per calendar day
+            if trigger["type"] in (TRIGGER_AT_TIME, TRIGGER_ON_SUNSET):
+                last_req = knowledge.get_last_request_for_plan(trigger["plan"], trigger["type"])
+                if last_req is not None and last_req["created_at"].date() == today:
                     logger.info(
-                        "Trigger skipped — cooldown active: automation=%r type=%s remaining=%.0fs",
-                        automation["name"], trigger["type"], cooldown_secs - elapsed,
+                        "Trigger skipped — already fired today: plan=%r type=%s",
+                        trigger["plan"], trigger["type"],
                     )
-                    break
+                    continue
 
-            logger.info(
-                "Trigger fired: automation=%r type=%s",
-                automation["name"], trigger["type"],
+            req = knowledge.create_request(
+                None, trigger["plan"], trigger["type"], knowledge.REQUEST_PENDING, now,
             )
-            knowledge.record_trigger(automation["name"], trigger["type"], now)
-            fired.append(automation)
-            break  # first matching trigger per automation is sufficient
+            logger.info(
+                "Request PENDING: plan=%r type=%s id=%s",
+                trigger["plan"], trigger["type"], req["id"],
+            )
+            fired.append({"plan": plan, "request_id": req["id"]})
 
     if not fired:
         logger.debug("Evaluation pass complete: no triggers fired")

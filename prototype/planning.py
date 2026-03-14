@@ -6,15 +6,15 @@ from execution import TARGET_AREA, TARGET_ENTITY
 logger = logging.getLogger(__name__)
 
 
-def build_plan(automation: knowledge.Automation) -> knowledge.Plan:
-    """Resolve an automation's steps into a flat, concrete Plan.
+def build_plan(plan_desc: knowledge.PlanDescriptor) -> knowledge.Plan:
+    """Resolve a plan's steps into a flat, concrete action list.
 
     TARGET_ENTITY steps are emitted directly.
     TARGET_AREA steps are expanded to one ActionStep per entity in that area.
     """
     plan: knowledge.Plan = []
 
-    for step in automation["steps"]:
+    for step in plan_desc["steps"]:
         if step["target_type"] == TARGET_ENTITY:
             plan.append({
                 "entity_id": step["target"],
@@ -35,7 +35,7 @@ def build_plan(automation: knowledge.Automation) -> knowledge.Plan:
                 })
 
     logger.info(
-        "Plan generated: automation=%r steps=%d",
-        automation["name"], len(plan),
+        "Plan generated: plan=%r steps=%d",
+        plan_desc["name"], len(plan),
     )
     return plan

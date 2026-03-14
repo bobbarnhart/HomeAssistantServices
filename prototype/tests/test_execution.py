@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import pytest
 
@@ -64,7 +65,7 @@ async def test_execute_plan_sends_all_steps_in_order():
         {"entity_id": "light.a", "service": "light/turn_on",  "params": {}},
         {"entity_id": "light.b", "service": "light/turn_off", "params": {}},
     ]
-    await execution.execute_plan(ws, plan, "Test Auto")
+    await execution.execute_plan(ws, plan, "my_plan")
     assert len(ws.sent) == 2
     assert ws.sent[0]["target"]["entity_id"] == "light.a"
     assert ws.sent[1]["target"]["entity_id"] == "light.b"
@@ -73,20 +74,32 @@ async def test_execute_plan_sends_all_steps_in_order():
 async def test_execute_plan_records_execution():
     ws = MockWebSocket()
     plan = [{"entity_id": "switch.x", "service": "switch/turn_on", "params": {}}]
-    await execution.execute_plan(ws, plan, "My Auto")
+    await execution.execute_plan(ws, plan, "my_plan")
     history = knowledge._adaptation["execution_history"]
     assert len(history) == 1
-    assert history[0]["automation_name"] == "My Auto"
+    assert history[0]["plan_name"] == "my_plan"
     assert history[0]["plan"] == plan
     assert history[0]["executed_at"] is not None
 
 
 async def test_execute_plan_empty_plan_still_records():
     ws = MockWebSocket()
-    await execution.execute_plan(ws, [], "Empty Auto")
+    await execution.execute_plan(ws, [], "empty_plan")
     assert len(ws.sent) == 0
     history = knowledge._adaptation["execution_history"]
     assert len(history) == 1
-    assert history[0]["automation_name"] == "Empty Auto"
+    assert history[0]["plan_name"] == "empty_plan"
 
 
+async def test_execute_plan_marks_request_completed():
+    ws = MockWebSocket()
+    req = knowledge.create_request(
+        "button.x", "my_plan", "entity_state", knowledge.REQUEST_PENDING, datetime.now(),
+    )
+    await execution.execute_plan(ws, [], "my_plan", request_id=req["id"])
+    assert knowledge._requests[0]["status"] == knowledge.REQUEST_COMPLETED
+
+
+async def test_execute_plan_no_request_id_no_error():
+    ws = MockWebSocket()
+    await execution.execute_plan(ws, [], "my_plan", request_id=None)

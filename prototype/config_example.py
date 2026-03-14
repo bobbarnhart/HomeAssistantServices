@@ -21,15 +21,13 @@ from execution import (
     TARGET_ENTITY,
 )
 
-AUTOMATIONS = [
+# ---------------------------------------------------------------------------
+# Plans — named, ordered sequences of actions. No trigger logic here.
+# ---------------------------------------------------------------------------
+
+PLANS = [
     {
-        "name": "Prepare for Nighttime",
-        "triggers": [
-            # Fire at a specific wall-clock time (24-hour HH:MM)
-            {"type": TRIGGER_AT_TIME,      "params": {"time": "20:30"}},
-            # Fire when an entity reaches a specific state
-            {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_prep", "state": "on"}},
-        ],
+        "name": "prepare_for_nighttime",
         "steps": [
             # TARGET_ENTITY — address a single device by its entity_id
             {"target": "switch.wipe_warmer",   "target_type": TARGET_ENTITY, "service": SERVICE_SWITCH_TURN_ON,  "params": {}},
@@ -43,11 +41,7 @@ AUTOMATIONS = [
         ],
     },
     {
-        "name": "Nighttime Nursery Routine",
-        "triggers": [
-            {"type": TRIGGER_AT_TIME,      "params": {"time": "21:00"}},
-            {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_nursery", "state": "on"}},
-        ],
+        "name": "nighttime_nursery_routine",
         "steps": [
             {"target": "light.nursery_lamp",   "target_type": TARGET_ENTITY, "service": SERVICE_LIGHT_TURN_OFF,  "params": {}},
             {"target": "light.crib_lamp",      "target_type": TARGET_ENTITY, "service": SERVICE_LIGHT_TURN_OFF,  "params": {}},
@@ -56,25 +50,39 @@ AUTOMATIONS = [
         ],
     },
     {
-        "name": "Nighttime House Routine",
-        "triggers": [
-            {"type": TRIGGER_AT_TIME,      "params": {"time": "22:00"}},
-            {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_house", "state": "on"}},
-        ],
+        "name": "nighttime_house_routine",
         "steps": [
-            {"target": "office",     "target_type": TARGET_AREA,   "service": SERVICE_LIGHT_TURN_OFF,  "params": {}},
-            {"target": "guest_room", "target_type": TARGET_AREA,   "service": SERVICE_LIGHT_TURN_OFF,  "params": {}},
-            {"target": "downstairs", "target_type": TARGET_AREA,   "service": SERVICE_LIGHT_TURN_ON,   "params": {"brightness_pct": 10}},
+            {"target": "office",     "target_type": TARGET_AREA, "service": SERVICE_LIGHT_TURN_OFF, "params": {}},
+            {"target": "guest_room", "target_type": TARGET_AREA, "service": SERVICE_LIGHT_TURN_OFF, "params": {}},
+            {"target": "downstairs", "target_type": TARGET_AREA, "service": SERVICE_LIGHT_TURN_ON,  "params": {"brightness_pct": 10}},
         ],
     },
     {
-        "name": "Monitor Exterior",
-        "triggers": [
-            # Fire when sun.sun transitions to below_horizon (sunset)
-            {"type": TRIGGER_ON_SUNSET, "params": {}},
-        ],
+        "name": "monitor_exterior",
         "steps": [
             {"target": "exterior", "target_type": TARGET_AREA, "service": SERVICE_LIGHT_TURN_ON, "params": {}},
         ],
     },
+]
+
+# ---------------------------------------------------------------------------
+# Triggers — what causes each plan to run. References plans by name.
+# ---------------------------------------------------------------------------
+
+TRIGGERS = [
+    # Time-based triggers (fire once per calendar day at the specified time)
+    {"type": TRIGGER_AT_TIME, "params": {"time": "20:30"}, "plan": "prepare_for_nighttime"},
+    {"type": TRIGGER_AT_TIME, "params": {"time": "21:00"}, "plan": "nighttime_nursery_routine"},
+    {"type": TRIGGER_AT_TIME, "params": {"time": "22:00"}, "plan": "nighttime_house_routine"},
+
+    # Condition-based triggers (fire once per calendar day when condition is met)
+    {"type": TRIGGER_ON_SUNSET, "params": {}, "plan": "monitor_exterior"},
+
+    # Stateful entity triggers (fire each time the entity reaches the specified state)
+    {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_prep",    "state": "on"}, "plan": "prepare_for_nighttime"},
+    {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_nursery", "state": "on"}, "plan": "nighttime_nursery_routine"},
+    {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "input_boolean.nighttime_house",   "state": "on"}, "plan": "nighttime_house_routine"},
+
+    # Button triggers (stateless — omit "state"; monitor handles cooldown)
+    # {"type": TRIGGER_ENTITY_STATE, "params": {"entity_id": "button.your_button"}, "plan": "your_plan"},
 ]

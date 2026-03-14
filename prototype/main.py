@@ -26,16 +26,17 @@ async def _main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    knowledge.load_configuration(cfg.AUTOMATIONS)
-    logger.info("Service starting: %d automation(s) loaded", len(cfg.AUTOMATIONS))
+    knowledge.load_configuration(cfg.PLANS, cfg.TRIGGERS)
+    logger.info(
+        "Service starting: %d plan(s), %d trigger(s) loaded",
+        len(cfg.PLANS), len(cfg.TRIGGERS),
+    )
 
     async def on_state_change(ws, entity: knowledge.Entity, request_id: str | None = None) -> None:
-        fired = analysis.evaluate_automations(entity)
-        for automation in fired:
-            plan = planning.build_plan(automation)
-            await execution.execute_plan(ws, plan, automation["name"])
-        if request_id is not None:
-            knowledge.update_request_status(request_id, knowledge.REQUEST_COMPLETED)
+        fired = analysis.evaluate_triggers(entity, request_id)
+        for item in fired:
+            action_plan = planning.build_plan(item["plan"])
+            await execution.execute_plan(ws, action_plan, item["plan"]["name"], item["request_id"])
 
     await monitor.run(on_state_change)
 

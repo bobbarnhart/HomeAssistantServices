@@ -56,6 +56,14 @@ Home Assistant
 | **Planning** | Given a triggered automation, resolves entities and generates an ordered action list |
 | **Execution** | Sends the generated action list to HA via WebSocket, records execution in AdaptationState |
 
+## Implementation Details  & Notes
+
+* Triggers should be separate from plans. Plans are generated DAG's (or lists for initial prototype) of what should be done when designed statically. Triggers (button presses, times) should be configured separately from these such that additional triggers can be added later separate from plan implementation details. For a button press, it will contain the information corresponding to the named plan to execute, meaning that the config does not specify anything regarding the button details. A timer however, can be specified by the config that correspond to one or more plans to execute. Other conditions such as 'sunset' are valid plan triggers.
+
+* A button press is considered a request that monitor consumes and writes to knowledge with a state of the request (not the button). As the request is handled (analyze sees the corresponding plan the button press wants to activate, recommends to plan to generate etc.) the request's status is updated.
+
+* A time or condition trigger dependent on a time should be triggered via analyze recognizing the condition is met, generating the plan recommendation, and executing. To avoid thrashing/re-triggering, the analyze should record when the condition was last done, so that next attempts see that it was already triggered for the current day.
+
 --------------- DO NOT EDIT ANYTHING ABOVE ----------------------
 
 ## Prototype Implementation

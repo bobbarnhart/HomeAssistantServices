@@ -171,11 +171,10 @@ async def test_event_loop_ignores_missing_new_state():
 
 async def test_event_loop_button_creates_request_and_skips_state():
     # Button entity should create a NEW request and NOT be stored in _state
-    knowledge.load_configuration([{
-        "name": "Doorbell",
-        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
-        "steps": [],
-    }])
+    knowledge.load_configuration(
+        [{"name": "doorbell_plan", "steps": []}],
+        [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}, "plan": "doorbell_plan"}],
+    )
     received = []
 
     async def on_change(ws, entity, request_id=None):
@@ -196,19 +195,19 @@ async def test_event_loop_button_creates_request_and_skips_state():
     req = knowledge.get_last_request("button.doorbell")
     assert req is not None
     assert req["status"] == knowledge.REQUEST_NEW
+    assert req["plan_name"] == "doorbell_plan"
 
 
 async def test_event_loop_button_rejected_during_cooldown():
-    knowledge.load_configuration([{
-        "name": "Doorbell",
-        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
-        "steps": [],
-    }])
+    knowledge.load_configuration(
+        [{"name": "doorbell_plan", "steps": []}],
+        [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}, "plan": "doorbell_plan"}],
+    )
     # Seed a recent request 2 seconds ago — within the 5s cooldown
-    with patch("monitor.datetime") as mock_dt:
-        mock_dt.now.return_value = datetime(2026, 1, 1, 20, 29, 58)
-        knowledge.create_request("button.doorbell", knowledge.REQUEST_NEW, datetime(2026, 1, 1, 20, 29, 58))
-
+    knowledge.create_request(
+        "button.doorbell", "doorbell_plan", "entity_state",
+        knowledge.REQUEST_NEW, datetime(2026, 1, 1, 20, 29, 58),
+    )
     received = []
 
     async def on_change(ws, entity, request_id=None):
@@ -232,11 +231,10 @@ async def test_event_loop_button_rejected_during_cooldown():
 
 
 async def test_fetch_initial_states_skips_button_entities():
-    knowledge.load_configuration([{
-        "name": "Doorbell",
-        "triggers": [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}}],
-        "steps": [],
-    }])
+    knowledge.load_configuration(
+        [{"name": "doorbell_plan", "steps": []}],
+        [{"type": "entity_state", "params": {"entity_id": "button.doorbell"}, "plan": "doorbell_plan"}],
+    )
     ws = MockWebSocket([{
         "id": 1, "type": "result", "result": [
             {"entity_id": "light.test",      "state": "on",  "attributes": {}, "area_id": None},

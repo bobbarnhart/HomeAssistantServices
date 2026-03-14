@@ -10,6 +10,18 @@ def reset():
     knowledge._reset()
 
 
+def _plan(name, steps=None):
+    return {"name": name, "steps": steps or []}
+
+
+def _trigger(trigger_type, params, plan_name):
+    return {"type": trigger_type, "params": params, "plan": plan_name}
+
+
+# ---------------------------------------------------------------------------
+# Entity state
+# ---------------------------------------------------------------------------
+
 def test_apply_state_change_adds_entity():
     entity = {"entity_id": "light.test", "state": "on", "attributes": {}, "area_id": None}
     knowledge.apply_state_change(entity)
@@ -28,10 +40,20 @@ def test_get_entity_missing_returns_none():
     assert knowledge.get_entity("light.missing") is None
 
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 def test_load_configuration():
-    automations = [{"name": "Test", "triggers": [], "steps": []}]
-    knowledge.load_configuration(automations)
-    assert knowledge.get_automations() == automations
+    plans    = [_plan("my_plan")]
+    triggers = [_trigger("at_time", {"time": "20:30"}, "my_plan")]
+    knowledge.load_configuration(plans, triggers)
+    assert knowledge.get_plan("my_plan") is not None
+    assert len(knowledge.get_triggers()) == 1
+
+
+def test_get_plan_not_found():
+    assert knowledge.get_plan("nonexistent") is None
 
 
 def test_entities_in_area():
@@ -46,39 +68,93 @@ def test_entities_in_area_empty():
     assert knowledge.entities_in_area("nowhere") == []
 
 
-def test_record_trigger_and_get_last():
+# ---------------------------------------------------------------------------
+# get_trigger_for_entity
+# ---------------------------------------------------------------------------
+
+def test_get_trigger_for_entity_found():
+    trigger = _trigger("entity_state", {"entity_id": "button.doorbell"}, "doorbell_plan")
+    knowledge.load_configuration([], [trigger])
+    result = knowledge.get_trigger_for_entity("button.doorbell")
+    assert result is not None
+    assert result["plan"] == "doorbell_plan"
+
+
+def test_get_trigger_for_entity_not_found():
+    knowledge.load_configuration([], [])
+    assert knowledge.get_trigger_for_entity("button.doorbell") is None
+
+
+def test_get_trigger_for_entity_ignores_stateful():
+    # A trigger with a "state" param is NOT a stateless button trigger
+    trigger = _trigger("entity_state", {"entity_id": "binary_sensor.door", "state": "on"}, "door_plan")
+    knowledge.load_configuration([], [trigger])
+    assert knowledge.get_trigger_for_entity("binary_sensor.door") is None
+
+
+# ---------------------------------------------------------------------------
+# Request model
+# ---------------------------------------------------------------------------
+
+def test_create_request_button():
     t = datetime(2026, 1, 1, 20, 30)
-    knowledge.record_trigger("My Auto", "at_time", t)
-    record = knowledge.get_last_trigger("My Auto", "at_time")
-    assert record is not None
-    assert record["fired_at"] == t
+    req = knowledge.create_request("button.doorbell", "doorbell_plan", "entity_state", knowledge.REQUEST_NEW, t)
+    assert req["entity_id"] == "button.doorbell"
+    assert req["plan_name"] == "doorbell_plan"
+    assert req["trigger_type"] == "entity_state"
+    assert req["status"] == knowledge.REQUEST_NEW
+    assert req["created_at"] == t
 
 
-def test_get_last_trigger_returns_most_recent():
-    t1 = datetime(2026, 1, 1, 20, 30)
-    t2 = datetime(2026, 1, 1, 21, 30)
-    knowledge.record_trigger("My Auto", "at_time", t1)
-    knowledge.record_trigger("My Auto", "at_time", t2)
-    assert knowledge.get_last_trigger("My Auto", "at_time")["fired_at"] == t2
+def test_create_request_time_trigger():
+    t = datetime(2026, 1, 1, 20, 30)
+    req = knowledge.create_request(None, "nighttime_plan", "at_time", knowledge.REQUEST_PENDING, t)
+    assert req["entity_id"] is None
+    assert req["plan_name"] == "nighttime_plan"
 
 
-def test_get_last_trigger_none_when_missing():
-    assert knowledge.get_last_trigger("Nonexistent", "at_time") is None
+def test_update_request_status():
+    req = knowledge.create_request("button.x", "plan_a", "entity_state", knowledge.REQUEST_NEW, datetime.now())
+    knowledge.update_request_status(req["id"], knowledge.REQUEST_COMPLETED)
+    assert knowledge._requests[0]["status"] == knowledge.REQUEST_COMPLETED
 
 
-def test_get_last_trigger_isolates_by_type():
-    t = datetime(2026, 1, 1, 20, 0)
-    knowledge.record_trigger("My Auto", "at_time", t)
-    assert knowledge.get_last_trigger("My Auto", "entity_state") is None
+def test_get_last_request_found():
+    t1 = datetime(2026, 1, 1, 20, 0)
+    t2 = datetime(2026, 1, 1, 21, 0)
+    knowledge.create_request("button.x", "plan_a", "entity_state", knowledge.REQUEST_NEW, t1)
+    knowledge.create_request("button.x", "plan_a", "entity_state", knowledge.REQUEST_NEW, t2)
+    result = knowledge.get_last_request("button.x")
+    assert result["created_at"] == t2
 
+
+def test_get_last_request_not_found():
+    assert knowledge.get_last_request("button.missing") is None
+
+
+def test_get_last_request_for_plan_found():
+    t = datetime(2026, 1, 1, 20, 30)
+    knowledge.create_request(None, "nighttime_plan", "at_time", knowledge.REQUEST_COMPLETED, t)
+    result = knowledge.get_last_request_for_plan("nighttime_plan", "at_time")
+    assert result is not None
+    assert result["created_at"] == t
+
+
+def test_get_last_request_for_plan_not_found():
+    assert knowledge.get_last_request_for_plan("nonexistent", "at_time") is None
+
+
+# ---------------------------------------------------------------------------
+# Execution record
+# ---------------------------------------------------------------------------
 
 def test_record_execution():
     plan = [{"entity_id": "light.x", "service": "light/turn_on", "params": {}}]
     t = datetime(2026, 1, 1, 20, 30)
-    knowledge.record_execution("My Auto", plan, t)
+    knowledge.record_execution("my_plan", plan, t)
     history = knowledge._adaptation["execution_history"]
     assert len(history) == 1
-    assert history[0]["automation_name"] == "My Auto"
+    assert history[0]["plan_name"] == "my_plan"
     assert history[0]["plan"] == plan
 
 
@@ -88,13 +164,18 @@ def test_next_msg_id_increments():
     assert id2 == id1 + 1
 
 
+# ---------------------------------------------------------------------------
+# Reset
+# ---------------------------------------------------------------------------
+
 def test_reset_clears_all_stores():
     knowledge.apply_state_change({"entity_id": "x", "state": "on", "attributes": {}, "area_id": None})
-    knowledge.load_configuration([{"name": "A", "triggers": [], "steps": []}])
-    knowledge.record_trigger("A", "at_time", datetime(2026, 1, 1))
+    knowledge.load_configuration([_plan("p")], [_trigger("at_time", {"time": "20:00"}, "p")])
+    knowledge.create_request(None, "p", "at_time", knowledge.REQUEST_NEW, datetime(2026, 1, 1))
     knowledge.next_msg_id()
     knowledge._reset()
     assert knowledge.get_entity("x") is None
-    assert knowledge.get_automations() == []
-    assert knowledge.get_last_trigger("A", "at_time") is None
+    assert knowledge.get_plan("p") is None
+    assert knowledge.get_triggers() == []
+    assert knowledge.get_last_request_for_plan("p", "at_time") is None
     assert knowledge.next_msg_id() == 1
